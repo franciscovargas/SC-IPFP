@@ -1,11 +1,13 @@
-import numpy as np
+import autograd.numpy as np
 import pylab as pl
 
 
-randn = np.random.randn
+# key = jax.random.PRNGKey(0)
+key = None
 
 
-def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None):
+def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None,
+                key = key):
     """
             Kloeden - Numerical Solution of stochastic differential
             equations (Springer 1992)  page XXX.
@@ -17,9 +19,9 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None):
     solve_sde(alfa=None, beta=None, X0=None, dt=None, N=100, t0=0, DW=None)
     Parameters:
     ----------
-        alfa  : a lambda function with two arguments, the X state and the time
+        alfa  : a  function with two arguments, the X state and the time
                 defines the differential equation.
-        beta  : a lambda function with two arguments, the X state and the time
+        beta  : a  function with two arguments, the X state and the time
                 defines the stochastic part of the SDE.
         X0    : Initial conditions of the SDE. Mandatory for SDEs
                 with variables > 1 (default: gaussian np.random)
@@ -50,11 +52,19 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None):
     beta = lambda X, t: np.array( [     X[1],      1,      1] );
     X0 = [3.4, -1.3, 28.3];
     t, Y = solve_sde(alfa=alfa, beta=beta, X0=X0, dt=0.01, N=10000)
+    
+    
     """
+    
+#     randn = lambda shape: jax.random.normal(key, shape=shape)
+    randn = np.random.randn
+    
     if alfa is None or beta is None:
-        print "Error: SDE not defined."
-        return
-    X0 = randn(np.array(alfa(0, 0)).shape or 1) if X0 is None else np.array(X0)
+        raise ValueError("Error: SDE not defined.")
+#     print(alfa(0, 0).shape)
+#     import pdb; pdb.set_trace()
+    X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
+    print(X0)
     DW = (lambda Y, dt: randn(len(X0)) * np.sqrt(dt)) if DW is None else DW
     Y, ti = np.zeros((N, len(X0))), np.arange(N)*dt + t0
     Y[0, :], Dn, Wn = X0, dt, 1
