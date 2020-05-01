@@ -1,4 +1,5 @@
 import jax.numpy as np
+import numpy as onp
 import jax
 import pylab as pl
 
@@ -58,15 +59,15 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None,
     """
     
     randn = lambda shape: jax.random.normal(key, shape=shape)
-#     randn = np.random.randn
+    randn = onp.random.randn
     
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
 #     print(alfa(0, 0).shape)
 #     import pdb; pdb.set_trace()
-    X0 = randn(alfa(0, 0).shape) if X0 is None else np.array(X0)
+    X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
     print(X0)
-    DW = (lambda Y, dt: randn((len(X0),)) * np.sqrt(dt)) if DW is None else DW
+    DW = (lambda Y, dt: randn((len(X0))) * np.sqrt(dt)) if DW is None else DW
     _, ti = np.zeros((N, len(X0))), np.arange(N)*dt + t0
     Y = X0.reshape(1,-1)
     _, Dn, Wn = X0, dt, 1
