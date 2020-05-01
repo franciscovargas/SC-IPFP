@@ -1,9 +1,10 @@
-import autograd.numpy as np
+import jax.numpy as np
+import jax
 import pylab as pl
 
 
-# key = jax.random.PRNGKey(0)
-key = None
+key = jax.random.PRNGKey(0)
+# key = None
 
 
 def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None,
@@ -56,24 +57,27 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0, DW=None,
     
     """
     
-#     randn = lambda shape: jax.random.normal(key, shape=shape)
-    randn = np.random.randn
+    randn = lambda shape: jax.random.normal(key, shape=shape)
+#     randn = np.random.randn
     
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
 #     print(alfa(0, 0).shape)
 #     import pdb; pdb.set_trace()
-    X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
+    X0 = randn(alfa(0, 0).shape) if X0 is None else np.array(X0)
     print(X0)
-    DW = (lambda Y, dt: randn(len(X0)) * np.sqrt(dt)) if DW is None else DW
-    Y, ti = np.zeros((N, len(X0))), np.arange(N)*dt + t0
-    Y[0, :], Dn, Wn = X0, dt, 1
+    DW = (lambda Y, dt: randn((len(X0),)) * np.sqrt(dt)) if DW is None else DW
+    _, ti = np.zeros((N, len(X0))), np.arange(N)*dt + t0
+    Y = X0.reshape(1,-1)
+    _, Dn, Wn = X0, dt, 1
 
     for n in range(N-1):
         t = ti[n]
         a, b, DWn = alfa(Y[n, :], t), beta(Y[n, :], t), DW(Y[n, :], dt)
         # print Y[n,:]
-        Y[n+1, :] = Y[n, :] + a*Dn + b*DWn*Wn + \
+        newY = Y[n, :] + a*Dn + b*DWn*Wn + \
                     0.5*(beta(Y[n, :] + b*np.sqrt(Dn), t) - b) * \
                     (DWn**2.0 - Dn)/np.sqrt(Dn)
+#         print(Y.shape, newY.reshape(1,-1).shape)
+        Y = np.concatenate((Y, newY.reshape(1,-1)), axis=0)
     return ti, Y
