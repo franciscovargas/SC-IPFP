@@ -42,7 +42,7 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     alfa_ = alfa
     if theta:
         alfa_ = lambda X,t: alfa(theta, X)
-        
+
        
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
