@@ -8,8 +8,8 @@ key = jax.random.PRNGKey(0)
 # key = None
 
 
-def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0
-                key = key):
+def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
+                key = key, theta=None):
     """
             Kloeden - Numerical Solution of stochastic differential
             equations (Springer 1992)  page XXX.
@@ -39,12 +39,16 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0
     randn = lambda shape: jax.random.normal(key, shape=shape)
     randn = onp.random.randn
     
+    alfa_ = alfa
+    if theta:
+        alfa_ = lambda X,t: alfa(theta, X)
+        
+       
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
-#     print(alfa(0, 0).shape)
-#     import pdb; pdb.set_trace()
+
+        
     X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
-    print(X0)
 #     DW = (lambda Y, dt: randn((len(X0))) * np.sqrt(dt)) if DW is None else DW
     DWs  = randn(N-1, len(X0))  * np.sqrt(dt)
     
@@ -57,7 +61,7 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0
 
     for n in range(N-1):
         t = ti[n]
-        a, b, DWn = alfa(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
+        a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
         # print Y[n,:]
         newY = (  
             Y[n, :] + a * Dn + b * DWn * Wn + 

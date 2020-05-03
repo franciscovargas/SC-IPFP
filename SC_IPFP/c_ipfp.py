@@ -1,7 +1,12 @@
+import sys
+sys.path.append("/auto/homes/fav25/jax/")
+
 import jax.numpy as np
 # import autograd.numpy
 import numpy as np
-from C_IPFP.sde_solvers import solve_sde_RK
+
+from SC_IPFP.sde_solvers import solve_sde_RK
+from SC_IPFP.utils import log_kde_pdf_per_point, silvermans_rule
 
 from jax.config import config
 from jax import jit, grad, random
@@ -34,9 +39,12 @@ class cIPFP(object):
         self.X_0 = X_0
         self.X_1 = X_1
         
+        self.H_0 = silvermans_rule(X_0)
+        self.H_1 = silvermans_rule(X_1)
+        
         _, self.dim = self.X_0.shape
         
-        create_net = self.create_network if  is None else create_network
+        create_net = self.create_network if  create_networ is None else create_network
         
         self.b_forward_init, self.b_forward = create_net(
             self.dim, weights
@@ -74,7 +82,7 @@ class cIPFP(object):
             )
             
             model.append(
-                Relu(weight)
+                Relu
             )
             
         
@@ -95,7 +103,7 @@ class cIPFP(object):
         
         ito_integral = sign *  (b_plus[1:,:] - b_minus[:-1,:])  * delta_Xt
         
-        time_integral = sign *  (b_plus**2 - b_minus**2) * dt
+        time_integral = sign *  (b_plus**2 - b_minus**2) * dt # Not sure about this dt here
         
         return ito_integral.sum() - 0.5 * time_integral.sum()
         
@@ -131,16 +139,23 @@ class cIPFP(object):
     def inner_loss(self, theta, batch, forwards=True):
                        
         J = 0
+        terminal_index = -1 if forwards else 0
+#         X_terminal_empirical = self.X_1 if forwards else self.X_0
+        X_terminal_empirical = self.data_stream(forward=not(forwards))
         
         for x in batch:
             t, Xt = self.sample_trajectory(x, forwards=forwards)
             
-            J += loss_for_trajectory(Xt, self.b_forward, self.b_backward, dt, forwards=forwards, theta)
+            cross_entropy = log_kde_pdf_per_point(Xt[terminal_index], X_terminal_empirical)
+            
+            J += loss_for_trajectory(Xt, self.b_forward, self.b_backward, dt, theta, forwards=forwards)
+            
+            J += cross_entropy
         
-        J /= len(X)
+        J /= len(batch)
         
         return J
-
+               
     def fit(self, IPFP_iterations=10, sub_iterations=10):     
         
         _, init_params_f = self.b_forward_init(self.rng, (-1, self.dim))                                             

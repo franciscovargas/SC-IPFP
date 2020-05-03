@@ -25,7 +25,7 @@ def fast_mahalanobis_2(X, Y , Lambda, partition=True):
     return exponent + fac * neg_log_Z
 
 
-def calculate_energy_per_point(x_star, X, S):
+def log_kde_pdf_per_point(x_star, X, S):
     out = np.zeros((x_star.shape[0],1))
     N = X.shape[0]
     # Can be vectorized but gram matrix is big
@@ -39,7 +39,10 @@ def calculate_energy_per_point(x_star, X, S):
                 axis=0
             )
         )
-    return np.exp(out - np.log(N))
+    return (out - np.log(N))
+
+def kde_pdf_per_point(x_star, X, S):
+    return np.exp(log_kde_pdf_per_point(x_star, X, S))
 
 def silvermans_rule(X):
     N , d = X.shape
