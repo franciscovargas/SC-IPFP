@@ -1,4 +1,4 @@
-import jax.numpy  as np
+import jax.numpy as np
 # import autograd.numpy
 import numpy as np
 from C_IPFP.sde_solvers import solve_sde_RK
