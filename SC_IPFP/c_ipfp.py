@@ -2,8 +2,6 @@ import sys
 sys.path.append("/auto/homes/fav25/jax/")
 
 import jax.numpy as np
-# import autograd.numpy
-import numpy as np
 
 from SC_IPFP.sde_solvers import solve_sde_RK
 from SC_IPFP.utils import log_kde_pdf_per_point, silvermans_rule
@@ -17,10 +15,7 @@ import numpy.random as npr
 import jax
 
 import itertools
-
-# np = jax.numpy
-# np = autograd.numpy
-
+from functools import partial
 
 
 class cIPFP(object):
@@ -56,7 +51,7 @@ class cIPFP(object):
             self.dim, weights
         )
         
-        self.sigma = jit(lambda X,t: sigma_sq)
+        self.sigma = (lambda X,t: sigma_sq)
         
         self.rng = rng
         self.nrng = nrng
@@ -98,8 +93,11 @@ class cIPFP(object):
         )
         return init_random_params, predict
         
+    
+    
     @staticmethod
-    def loss_for_trajectory(Xt, b_f, b_b, dt, theta, forwards = True):
+    @partial(jit, static_argnums=(1,2, 5))
+    def loss_for_trajectory(Xt, b_f, b_b, dt, theta, forwards):
         b_minus  = b_b(theta, Xt)
         b_plus = b_f(theta, Xt)
         
@@ -128,50 +126,93 @@ class cIPFP(object):
                 yield X[batch_idx] 
 
 #     @jit
+    @partial(jit, static_argnums=(0,1, 4))
     def update(self, i, opt_state, batch, forwards=True):
 #         import pdb; pdb.set_trace()
 
         get_params = self.get_params_f if forwards else self.get_params_b
         params = get_params(opt_state)
         
-        loss = lambda params, batch: np.squeeze(self.inner_loss(params, batch, forwards=forwards))
+#         loss = lambda params, batch: np.squeeze(self.inner_loss(params, batch, forwards=forwards))
 #         import pdb; pdb.set_trace()
-        gradient = grad(loss)(params, batch)
+        gradient = grad(self.inner_loss)(params, batch, forwards)
     
         opt_update  = self.opt_update_f if forwards else self.opt_update_b
         return opt_update(i, gradient, opt_state)
         
-    def sample_trajectory(self, X, theta, forwards=True):
+    @staticmethod
+    def sample_trajectory(X, dt, theta, sigma, b, N, sde_solver, forwards=True):
         
-        # backwards discretisation has a sign flip
-        print("FUNCS_pre", b, self.sigma)
-        b = jit(self.b_forward if forwards else (lambda X, theta: -self.b_backward(X, theta)))
-        print("FUNCS_post", b, self.sigma)
-        return self.sde_solver(alfa=b, beta=self.sigma,
-                               dt=self.dt, X0=X,
-                               N=self.number_time_steps, theta=theta)
+        # backwards discretisation has a sign flip         
+        print(b, forwards, sigma)
+        return sde_solver(alfa=b, beta=sigma,
+                          dt=dt, X0=X,
+                          N=N, theta=theta)
     
+#     @staticmethod
+        
+    @staticmethod
+#     @partial(jit, static_argnums=(0,6,7,8,9,10,11))
+    def inner_loss_jit(terminal_index, theta, batch, dt, 
+                       batch_terminal_empirical, H , b_forward,
+                       b_backward, sigma, N, sde_solver, forwards):
+        
+        b = (b_forward if forwards else (lambda X, theta: -b_backward(X, theta)))
+        J = 0
+        
+        def inner_loss_loop(x):
+            return -log_kde_pdf_per_point(x.reshape(-1,1), batch_terminal_empirical, H)
+            t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
+            cross_entropy = -log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), batch_terminal_empirical, H)
+            main_term = cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
+            return main_term + cross_entropy 
+            
+#         for x in batch:
+#             t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
+            
+#             cross_entropy = log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), batch_terminal_empirical, H)
+            
+#             J += cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
+            
+#             J += cross_entropy
+        
+        print("done with loop")
+#         J /= len(batch)
+        J = np.mean(jax.vmap(inner_loss_loop)(batch))
+        print("normalised")
+        J = np.squeeze(J)
+#         J = J.block_until_ready() 
+        print("done with function")
+        return J
+    
+#     @partial(jit, static_argnums=(0,3))
     def inner_loss(self, theta, batch, forwards=True):
                        
-        J = 0
         terminal_index = -1 if forwards else 0
 #         X_terminal_empirical = self.X_1 if forwards else self.X_0
         X_terminal_empirical = next(self.data_stream(forward=not(forwards)))
     
         H = self.H_1 if forwards else self.H_0
+        return self.inner_loss_jit(
+            terminal_index, theta, batch, self.dt, 
+            X_terminal_empirical, H , self.b_forward,
+            self.b_backward, self.sigma, self.number_time_steps, self.sde_solver, forwards
+        )
+#         self.b_forward, self.b_backward
         
-        for x in batch:
-            t, Xt = self.sample_trajectory(x, theta, forwards=forwards)
-            
-            cross_entropy = log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), X_terminal_empirical, H)
-            
-            J += self.loss_for_trajectory(Xt, self.b_forward, self.b_backward, self.dt, theta, forwards=forwards)
-            
-            J += cross_entropy
         
-        J /= len(batch)
+#         for x in batch:
+#             t, Xt = self.sample_trajectory(x, theta, forwards=forwards)
+            
+#             cross_entropy = log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), X_terminal_empirical, H)
+            
+#             J += self.loss_for_trajectory(Xt, self.b_forward, self.b_backward, self.dt, theta, forwards)
+            
+#             J += cross_entropy
         
-        return J
+#         J /= len(batch)
+        
+#         return np.squeeze(J)
                
     def fit(self, IPFP_iterations=10, sub_iterations=10):     
         
@@ -192,7 +233,7 @@ class cIPFP(object):
                 for _ in range(self.num_batches_b):
 #                     print(next(itercount), opt_state_b, next(batches_b))
                     opt_state_b = self.update(
-                        next(itercount), opt_state_b, next(batches_b), forwards=False
+                        next(itercount), opt_state_b, next(batches_b), False
                     )
                                                
             
@@ -202,12 +243,9 @@ class cIPFP(object):
                 for _ in range(self.num_batches_f):
                     
                     opt_state_f = self.update(
-                        next(itercount), opt_state_f, next(batches_f), forwards=True
+                        next(itercount), opt_state_f, next(batches_f), True
                     )
          
 
         self.theta_f = self.get_params_f(opt_state_f)
         self.theta_b = self.get_params_b(opt_state_b)
-            
-        
-        
