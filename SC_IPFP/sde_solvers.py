@@ -9,7 +9,7 @@ key = jax.random.PRNGKey(0)
 
 # @jit
 def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
-                key = key, theta=None):
+                key = key, theta=None, time=False):
     """
             Kloeden - Numerical Solution of stochastic differential
             equations (Springer 1992)  page XXX.
