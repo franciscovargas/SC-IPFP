@@ -1,7 +1,7 @@
 import jax.numpy as np
 import jax.scipy as sc
 import jax
-
+from jax import jit
 
 
 def fast_mahalanobis_2(X, Y , Lambda, partition=True):
@@ -25,6 +25,7 @@ def fast_mahalanobis_2(X, Y , Lambda, partition=True):
     return exponent + fac * neg_log_Z
 
 
+@jit
 def log_kde_pdf_per_point(x_star, X, S):
     out = np.zeros((x_star.shape[0],1))
     N = X.shape[0]

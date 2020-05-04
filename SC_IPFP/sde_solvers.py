@@ -2,7 +2,7 @@ import jax.numpy as np
 import numpy as onp
 import jax
 import pylab as pl
-
+from jax import jit
 
 key = jax.random.PRNGKey(0)
 # key = None
@@ -58,16 +58,20 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     Y = jax.ops.index_update(Y, jax.ops.index[0,:],  X0)
     
     Dn, Wn = dt, 1
+    
+    @jit
+    def inner_jit(Y):
+        for n in range(N-1):
+            t = ti[n]
+            a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
+            # print Y[n,:]
+            newY = (  
+                Y[n, :] + a * Dn + b * DWn * Wn + 
+                0.5 * ( beta(Y[n, :] + b * np.sqrt(Dn), t) - b ) * 
+                (DWn**2.0 - Dn) / np.sqrt(Dn)
+            )
 
-    for n in range(N-1):
-        t = ti[n]
-        a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
-        # print Y[n,:]
-        newY = (  
-            Y[n, :] + a * Dn + b * DWn * Wn + 
-            0.5 * ( beta(Y[n, :] + b * np.sqrt(Dn), t) - b ) * 
-            (DWn**2.0 - Dn) / np.sqrt(Dn)
-        )
-
-        Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
-    return ti, Y
+            Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
+        return ti, Y
+    
+    return inner_jit(Y)
