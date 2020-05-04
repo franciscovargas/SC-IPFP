@@ -56,7 +56,7 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     Dn, Wn = dt, 1
     
     @jit
-    def inner_jit(Y, ti, Dn, Wn, dt, theta):
+    def inner_jit(Y, ti, Dn, DWs, Wn, dt, theta):
         alfa_ = alfa
         if theta is not None:
             alfa_ = lambda X,t: alfa(theta, X)
@@ -74,4 +74,4 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
             Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
         return ti, Y
     
-    return inner_jit(Y, ti, Dn, Wn, dt, theta)
+    return inner_jit(Y, ti, Dn, DWs, Wn, dt, theta)
