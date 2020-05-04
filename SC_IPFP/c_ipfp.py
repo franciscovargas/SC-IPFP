@@ -56,7 +56,7 @@ class cIPFP(object):
             self.dim, weights
         )
         
-        self.sigma = lambda X,t: sigma_sq
+        self.sigma = jit(lambda X,t: sigma_sq)
         
         self.rng = rng
         self.nrng = nrng
@@ -144,8 +144,8 @@ class cIPFP(object):
     def sample_trajectory(self, X, theta, forwards=True):
         
         # backwards discretisation has a sign flip         
-        b = self.b_forward if forwards else (lambda X, theta: -self.b_backward(X, theta))
-        
+        b = jit(self.b_forward if forwards else (lambda X, theta: -self.b_backward(X, theta)))
+        print(b, self.sigma)
         return self.sde_solver(alfa=b, beta=self.sigma,
                                dt=self.dt, X0=X,
                                N=self.number_time_steps, theta=theta)
