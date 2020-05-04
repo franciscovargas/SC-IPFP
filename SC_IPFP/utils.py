@@ -27,19 +27,26 @@ def fast_mahalanobis_2(X, Y , Lambda, partition=True):
 
 @jit
 def log_kde_pdf_per_point(x_star, X, S):
-    out = np.zeros((x_star.shape[0],1))
+#     out = np.zeros((x_star.shape[0],1))
     N = X.shape[0]
     # Can be vectorized but gram matrix is big
     Lambda = np.linalg.inv(S)
-    for i in range(x_star.shape[0]):
-        out = jax.ops.index_update(
-            out,
-            jax.ops.index[i,:],
-            sc.special.logsumexp(
-                fast_mahalanobis_2(X, x_star[i][None, ...], Lambda),
+    
+    def inner_loop(x):
+        return sc.special.logsumexp(
+                fast_mahalanobis_2(X, x[None, ...], Lambda),
                 axis=0
-            )
-        )
+         )
+#     for i in range(x_star.shape[0]):
+#         out = jax.ops.index_update(
+#             out,
+#             jax.ops.index[i,:],
+#             sc.special.logsumexp(
+#                 fast_mahalanobis_2(X, x_star[i][None, ...], Lambda),
+#                 axis=0
+#             )
+#         )
+    out = jax.vmap(inner_loop)(x_star)
     return (out - np.log(N))
 
 def kde_pdf_per_point(x_star, X, S):

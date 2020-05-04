@@ -3,13 +3,34 @@ import numpy as onp
 import jax
 import pylab as pl
 from jax import jit
+from functools import partial
 
 key = jax.random.PRNGKey(0)
 # key = None
 
+
+@partial(jit, static_argnums=(0,1, 4))
+def inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta):
+    alfa_ = alfa
+    if theta is not None:
+        alfa_ = lambda X,t: alfa(theta, X)
+    for n in range(N-1):
+        t = ti[n]
+        a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
+        # print Y[n,:]
+        newY = (  
+            Y[n, :] + a * Dn + b * DWn * Wn + 
+            0.5 * ( beta(Y[n, :] + b * np.sqrt(Dn), t) - b ) * 
+            (DWn**2.0 - Dn) / np.sqrt(Dn)
+        )
+
+        Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
+    return ti, Y
+
+
 # @jit
 def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
-                key = key, theta=None, time=False):
+                key = key, theta=None):
     """
             Kloeden - Numerical Solution of stochastic differential
             equations (Springer 1992)  page XXX.
@@ -54,24 +75,5 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     Y = jax.ops.index_update(Y, jax.ops.index[0,:],  X0)
     
     Dn, Wn = dt, 1
-    
-    @jit
-    def inner_jit(Y, ti, Dn, DWs, Wn, dt, theta):
-        alfa_ = alfa
-        if theta is not None:
-            alfa_ = lambda X,t: alfa(theta, X)
-            
-        for n in range(N-1):
-            t = ti[n]
-            a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
-            # print Y[n,:]
-            newY = (  
-                Y[n, :] + a * Dn + b * DWn * Wn + 
-                0.5 * ( beta(Y[n, :] + b * np.sqrt(Dn), t) - b ) * 
-                (DWn**2.0 - Dn) / np.sqrt(Dn)
-            )
-
-            Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
-        return ti, Y
-    
-    return inner_jit(Y, ti, Dn, DWs, Wn, dt, theta)
+        
+    return inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta)
