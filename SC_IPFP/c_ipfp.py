@@ -93,8 +93,6 @@ class cIPFP(object):
         )
         return init_random_params, predict
         
-    
-    
     @staticmethod
     @partial(jit, static_argnums=(1,2, 5))
     def loss_for_trajectory(Xt, b_f, b_b, dt, theta, forwards):
@@ -161,7 +159,6 @@ class cIPFP(object):
         J = 0
         
         def inner_loss_loop(x):
-            return -log_kde_pdf_per_point(x.reshape(-1,1), batch_terminal_empirical, H)
             t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
             cross_entropy = -log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), batch_terminal_empirical, H)
             main_term = cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
@@ -181,7 +178,6 @@ class cIPFP(object):
         J = np.mean(jax.vmap(inner_loss_loop)(batch))
         print("normalised")
         J = np.squeeze(J)
-#         J = J.block_until_ready() 
         print("done with function")
         return J
     
@@ -189,7 +185,6 @@ class cIPFP(object):
     def inner_loss(self, theta, batch, forwards=True):
                        
         terminal_index = -1 if forwards else 0
-#         X_terminal_empirical = self.X_1 if forwards else self.X_0
         X_terminal_empirical = next(self.data_stream(forward=not(forwards)))
     
         H = self.H_1 if forwards else self.H_0
@@ -198,21 +193,6 @@ class cIPFP(object):
             X_terminal_empirical, H , self.b_forward,
             self.b_backward, self.sigma, self.number_time_steps, self.sde_solver, forwards
         )
-#         self.b_forward, self.b_backward
-        
-        
-#         for x in batch:
-#             t, Xt = self.sample_trajectory(x, theta, forwards=forwards)
-            
-#             cross_entropy = log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), X_terminal_empirical, H)
-            
-#             J += self.loss_for_trajectory(Xt, self.b_forward, self.b_backward, self.dt, theta, forwards)
-            
-#             J += cross_entropy
-        
-#         J /= len(batch)
-        
-#         return np.squeeze(J)
                
     def fit(self, IPFP_iterations=10, sub_iterations=10):     
         
