@@ -143,9 +143,10 @@ class cIPFP(object):
         
     def sample_trajectory(self, X, theta, forwards=True):
         
-        # backwards discretisation has a sign flip         
+        # backwards discretisation has a sign flip
+        print("FUNCS_pre", b, self.sigma)
         b = jit(self.b_forward if forwards else (lambda X, theta: -self.b_backward(X, theta)))
-        print(b, self.sigma)
+        print("FUNCS_post", b, self.sigma)
         return self.sde_solver(alfa=b, beta=self.sigma,
                                dt=self.dt, X0=X,
                                N=self.number_time_steps, theta=theta)
