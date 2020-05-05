@@ -57,4 +57,4 @@ def silvermans_rule(X):
     sig = np.std(X, axis=0)
 #     print(sig)
     h = sig * (4.0 / (N * (d + 2)) )**( 1.0 / (d + 4.0) )
-    return np.diag(h)
+    return np.diag(h)**2
