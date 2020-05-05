@@ -233,3 +233,4 @@ class cIPFP(object):
         plt.show()
         plt.plot(range(IPFP_iterations), loss_b, "b")
         plt.show()
+            
