@@ -95,6 +95,9 @@ class cIPFP(object):
     @staticmethod
     @partial(jit, static_argnums=(1,2, 5))
     def loss_for_trajectory(Xt, b_f, b_b, dt, theta, forwards):
+        
+        if not forwards : Xt = Xt[::-1, :]
+        
         b_minus  = b_b(theta, Xt)
         b_plus = b_f(theta, Xt)
         
