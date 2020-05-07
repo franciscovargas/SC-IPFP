@@ -17,8 +17,6 @@ import jax
 import itertools
 from functools import partial
 
-
-
 class cIPFP(object):
     
     def __init__(self, X_0, X_1, weights=[100], batch_size=None,  rng = jax.random.PRNGKey(0), 
@@ -100,20 +98,20 @@ class cIPFP(object):
     @partial(jit, static_argnums=(1,2, 5))
     def loss_for_trajectory(Xt, b_f, b_b, dt, theta, forwards):
         
-        if not forwards : Xt = Xt[::-1, :]
+        if not forwards : Xt = Xt[: , ::-1, :]
         
         b_minus  = b_b(theta, Xt)
         b_plus = b_f(theta, Xt)
         
-        delta_Xt = Xt[:-1, :]  - Xt[1:, :]
+        delta_Xt = Xt[:, :-1, :]  - Xt[:, 1:, :]
         
         sign = 1.0 if forwards else -1.0
         
-        ito_integral = sign *  (b_plus[1:,:] - b_minus[:-1,:])  * delta_Xt
+        ito_integral = sign *  (b_plus[:, 1:,:] - b_minus[:, :-1,:])  * delta_Xt
         
         time_integral = sign *  (b_plus**2 - b_minus**2) * dt # Not sure about this dt here
         
-        return ito_integral.sum() - 0.5 * time_integral.sum()
+        return ito_integral.sum(axis=(1,2)) - 0.5 * time_integral.sum(axis=(1,2))
         
     def data_stream(self, forward=True):
         rng = self.nrng
@@ -145,29 +143,35 @@ class cIPFP(object):
         
         def inner_loss_loop(x):
             t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
-            cross_entropy = -log_kde_pdf_per_point(Xt[-1].reshape(-1,1), batch_terminal_empirical, H)
+            cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
             main_term = cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
             return main_term + cross_entropy 
             
-        J = np.mean(jax.vmap(inner_loss_loop)(batch))
+#         for x in batch:
+#             t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
+            
+#             cross_entropy = log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), batch_terminal_empirical, H)
+            
+#             J += cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
+            
+#             J += cross_entropy
+        
+#         J /= len(batch)
+        J = np.mean(inner_loss_loop(batch))
         J = np.squeeze(J)
+#         J = J.block_until_ready() 
         return J
     
     @partial(jit, static_argnums=(0,2))
     def transport_batch(self, batch_x, forwards):
-        theta = self.theta_f if forwards else self.theta_b
+        theta = self.theta_f if forwards else self.theta_b    
         b = self.b_forward if forwards else  lambda X, theta: -self.b_backward(X, theta)
-        dt = self.dt
-        N = self.number_time_steps
-        sde_solver = self.sde_solver
-        sigma = self.sigma
 
-        def inner_loss_loop(x):
-            t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
-            return Xt[-1, :]
+        def inner_loss_loop_23(x_):
+            t, Xt = solve_sde_RK(alfa=b, beta=self.sigma, dt=self.dt, X0=x_.reshape(-1,1), N=100, theta=theta)
+            return Xt[:,-1,:]
 
-        batch_y = jax.vmap(inner_loss_loop)(batch_x)
-        return batch_y
+        return inner_loss_loop_23(batch_x)
     
     def inner_loss(self, theta, batch, forwards=True):
                        
@@ -205,12 +209,13 @@ class cIPFP(object):
         
         loss_f, loss_b = [], []
         
-        for i in range(IPFP_iterations):
+        for i in tqdm(range(IPFP_iterations)):
                                                
             itercount = itertools.count()
             
             for k in range(sub_iterations):
                 for _ in range(self.num_batches_b):
+#                     print(_)
                     batch_b =  next(batches_b)
                     opt_state_b  = self.update(
                         next(itercount), opt_state_b, batch_b, False
@@ -226,6 +231,7 @@ class cIPFP(object):
             
             for k in range(sub_iterations):
                 for _ in range(self.num_batches_f):
+#                     print(_)
                     batch_f =  next(batches_f)
                     opt_state_f = self.update(
                         next(itercount), opt_state_f, next(batches_f), True
