@@ -7,6 +7,7 @@ from functools import partial
 
 key = jax.random.PRNGKey(0)
 # key = None
+onp.random.seed(0)
 
 
 @partial(jit, static_argnums=(0,1, 4))
@@ -18,29 +19,19 @@ def inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta):
         
     def inner_loop(n, Y):
         t = ti[n]
-        a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
+        a, b, DWn = alfa_(Y[:,n, :], t), beta(Y[:,n, :], t), DWs[:,n,:]
         # print Y[n,:]
         newY = (  
-            Y[n, :] + a * Dn + b * DWn * Wn + 
-            0.5 * ( beta(Y[n, :] + b * np.sqrt(Dn), t) - b ) * 
+            Y[:,n, :] + a * Dn + b * DWn * Wn + 
+            0.5 * ( beta(Y[:,n, :] + b * np.sqrt(Dn), t) - b ) * 
             (DWn**2.0 - Dn) / np.sqrt(Dn)
         )
         
-        Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
+        Y = jax.ops.index_update(Y, jax.ops.index[:,n+1,:],  newY)
         return Y
     
     Y = jax.lax.fori_loop (0, N-1, inner_loop, Y)
-#     for n in range(N-1):
-#         t = ti[n]
-#         a, b, DWn = alfa_(Y[n, :], t), beta(Y[n, :], t), DWs[n,:]
-#         # print Y[n,:]
-#         newY = (  
-#             Y[n, :] + a * Dn + b * DWn * Wn + 
-#             0.5 * ( beta(Y[n, :] + b * np.sqrt(Dn), t) - b ) * 
-#             (DWn**2.0 - Dn) / np.sqrt(Dn)
-#         )
 
-#         Y = jax.ops.index_update(Y, jax.ops.index[n+1,:],  newY)
     return ti, Y
 
 
@@ -73,21 +64,19 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     
     """
     
-    randn = lambda shape: jax.random.normal(key, shape=shape)
     randn = onp.random.randn
-
+#     print(X0)
        
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
-
+    n, d = X0.shape
         
     X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
-#     DW = (lambda Y, dt: randn((len(X0))) * np.sqrt(dt)) if DW is None else DW
-    DWs  = randn(N-1, len(X0))  * np.sqrt(dt)
+    DWs  = randn(n, N-1, d)  * np.sqrt(dt)
     
     
-    Y, ti = np.zeros((N, len(X0))), np.arange(N)*dt + t0
-    Y = jax.ops.index_update(Y, jax.ops.index[0,:],  X0)
+    Y, ti = np.zeros((n, N, d)), np.arange(N)*dt + t0
+    Y = jax.ops.index_update(Y, jax.ops.index[:,0,:],  X0)
     
     Dn, Wn = dt, 1
         
