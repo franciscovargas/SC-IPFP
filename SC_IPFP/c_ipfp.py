@@ -16,6 +16,7 @@ import jax
 
 import itertools
 from functools import partial
+from tqdm.notebook import tqdm
 
 
 
@@ -130,7 +131,7 @@ class cIPFP(object):
                 yield X[batch_idx] 
         
     @staticmethod
-    def sample_trajectory(X, dt, theta, sigma, b, N, sde_solver, forwards=True):
+    def sample_trajectory(X, dt, theta, sigma, b, N, sde_solver):
         return sde_solver(alfa=b, beta=sigma,
                           dt=dt, X0=X,
                           N=N, theta=theta)
@@ -143,7 +144,7 @@ class cIPFP(object):
         
         b = (b_forward if forwards else (lambda X, theta: -b_backward(X, theta)))
         
-        t, Xt = cIPFP.sample_trajectory(batch, dt, theta,  sigma, b, N, sde_solver, forwards)
+        t, Xt = cIPFP.sample_trajectory(batch, dt, theta,  sigma, b, N, sde_solver)
         cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
         main_term = cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
 
@@ -156,7 +157,7 @@ class cIPFP(object):
         theta = self.theta_f if forwards else self.theta_b    
         b = self.b_forward if forwards else  lambda X, theta: -self.b_backward(X, theta)
 
-        t, Xt = solve_sde_RK(
+        t, Xt = self.sde_solver(
             alfa=b, beta=self.sigma, dt=self.dt, 
             X0=batch_x.reshape(-1,self.dim), N=self.number_time_steps, theta=theta
         )
