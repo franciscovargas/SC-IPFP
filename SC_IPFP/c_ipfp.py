@@ -17,6 +17,8 @@ import jax
 import itertools
 from functools import partial
 
+
+
 class cIPFP(object):
     
     def __init__(self, X_0, X_1, weights=[100], batch_size=None,  rng = jax.random.PRNGKey(0), 
@@ -141,25 +143,12 @@ class cIPFP(object):
         
         b = (b_forward if forwards else (lambda X, theta: -b_backward(X, theta)))
         
-        def inner_loss_loop(x):
-            t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
-            cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
-            main_term = cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
-            return main_term + cross_entropy 
-            
-#         for x in batch:
-#             t, Xt = cIPFP.sample_trajectory(x, dt, theta,  sigma, b, N, sde_solver, forwards)
-            
-#             cross_entropy = log_kde_pdf_per_point(Xt[terminal_index].reshape(-1,1), batch_terminal_empirical, H)
-            
-#             J += cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
-            
-#             J += cross_entropy
-        
-#         J /= len(batch)
-        J = np.mean(inner_loss_loop(batch))
+        t, Xt = cIPFP.sample_trajectory(batch, dt, theta,  sigma, b, N, sde_solver, forwards)
+        cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
+        main_term = cIPFP.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
+
+        J = np.mean(main_term + cross_entropy )
         J = np.squeeze(J)
-#         J = J.block_until_ready() 
         return J
     
     @partial(jit, static_argnums=(0,2))
@@ -167,11 +156,12 @@ class cIPFP(object):
         theta = self.theta_f if forwards else self.theta_b    
         b = self.b_forward if forwards else  lambda X, theta: -self.b_backward(X, theta)
 
-        def inner_loss_loop_23(x_):
-            t, Xt = solve_sde_RK(alfa=b, beta=self.sigma, dt=self.dt, X0=x_.reshape(-1,1), N=100, theta=theta)
-            return Xt[:,-1,:]
+        t, Xt = solve_sde_RK(
+            alfa=b, beta=self.sigma, dt=self.dt, 
+            X0=batch_x.reshape(-1,self.dim), N=self.number_time_steps, theta=theta
+        )
 
-        return inner_loss_loop_23(batch_x)
+        return Xt[:,-1,:]
     
     def inner_loss(self, theta, batch, forwards=True):
                        
@@ -215,7 +205,6 @@ class cIPFP(object):
             
             for k in range(sub_iterations):
                 for _ in range(self.num_batches_b):
-#                     print(_)
                     batch_b =  next(batches_b)
                     opt_state_b  = self.update(
                         next(itercount), opt_state_b, batch_b, False
@@ -231,7 +220,6 @@ class cIPFP(object):
             
             for k in range(sub_iterations):
                 for _ in range(self.num_batches_f):
-#                     print(_)
                     batch_f =  next(batches_f)
                     opt_state_f = self.update(
                         next(itercount), opt_state_f, next(batches_f), True
