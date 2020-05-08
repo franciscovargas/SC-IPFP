@@ -31,13 +31,35 @@ def inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta):
         return Y
     
     Y = jax.lax.fori_loop (0, N-1, inner_loop, Y)
+    
+    return ti, Y
 
+
+@partial(jit, static_argnums=(0,1, 4))
+def inner_jit_2(alfa, beta, Y, ti, N, dt, DWs, Wn, theta):
+    N = int(N)
+    alfa_ = alfa
+    if theta is not None:
+        alfa_ = lambda X,t: alfa(theta, X)
+        
+    def inner_loop(n, Y):
+        t = ti[n]
+        a, b, DW_n = alfa_(Y[:,n, :], t), beta(Y[:,n, :], t), DWs[:,n,:]
+        newY = (  
+            Y[:,n, :] + a * dt + b * DW_n
+        )
+        
+        Y = jax.ops.index_update(Y, jax.ops.index[:,n+1,:],  newY)
+        return Y
+    
+    Y = jax.lax.fori_loop (0, N-1, inner_loop, Y)
+    
     return ti, Y
 
 
 # @jit
 def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
-                key = key, theta=None):
+                key = key, theta=None, noise=False):
     """
             Kloeden - Numerical Solution of stochastic differential
             equations (Springer 1992)  page XXX.
@@ -78,6 +100,10 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     Y, ti = np.zeros((n, N, d)), np.arange(N)*dt + t0
     Y = jax.ops.index_update(Y, jax.ops.index[:,0,:],  X0)
     
-    Dn, Wn = dt, 1
+    if np.isnan(Y).any():
+        import pdb; pdb.set_trace()
+    
         
-    return inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta)
+    t, Xt =  inner_jit_2(alfa, beta, Y, ti, N, dt, DWs, 1.0, theta)
+    if noise: return t, Xt, DWs
+    return t, Xt

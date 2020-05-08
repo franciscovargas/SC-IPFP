@@ -110,8 +110,8 @@ class cIPFP(object):
                 batch_idx = perm[i * batch_size:(i + 1) * batch_size]
                 yield X[batch_idx] 
         
-    @partial(jit, static_argnums=(0,3))
-    def loss_for_trajectory(self, Xt, theta, forwards):
+#     @partial(jit, static_argnums=(0,3))
+    def loss_for_trajectory(self, Xt, theta, W, forwards):
         n_, *_ = Xt.shape
         
         if not forwards : Xt = Xt[: , ::-1, :]
@@ -122,19 +122,21 @@ class cIPFP(object):
         else:
             b_minus  = self.b_backward(theta, Xt)
             b_plus = self.b_forward(self.theta_f, Xt)
+
             
-#         b_minus  = b_b(theta, Xt)
-#         b_plus = b_f(theta, Xt)
-            
-        delta_Xt = Xt[:, :-1, :]  - Xt[:, 1:, :]
+        delta_Xt = Xt[:, 1:, :] - Xt[:, :-1, :]  
         
         sign = 1.0 if forwards else -1.0
         
-        ito_integral = sign *  (b_plus[:, 1:,:] - b_minus[:, :-1,:])  * delta_Xt
+        ito_integral = sign *  (b_plus[:, :-1,:] - b_minus[:, 1:,:])  * delta_Xt
         
         time_integral = sign *  (b_plus**2 - b_minus**2) * self.dt 
         
-        return ito_integral.sum(axis=(1,2)) - 0.5 * time_integral.sum(axis=(1,2))
+        out =  ito_integral.sum(axis=(1,2)) - 0.5 * time_integral.sum(axis=(1,2))
+        
+        if np.isnan(out).any() or np.isinf(out).any():
+            import pdb; pdb.set_trace()
+        return out
 
 #     @partial(jit, static_argnums=(0,6,7,8,9,10,11))
     def inner_loss_jit(self, theta, batch,  
@@ -145,13 +147,16 @@ class cIPFP(object):
             self.b_forward if forwards else (lambda X, theta: -self.b_backward(X, theta))
         )
         
-        t, Xt = self.sde_solver(
+        t, Xt, *W = self.sde_solver(
             alfa=b, beta=self.sigma, dt=self.dt, X0=batch,
             N= self.number_time_steps, theta=theta
         )
         
         cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
-        main_term = self.loss_for_trajectory(Xt, theta, forwards)
+        main_term = self.loss_for_trajectory(Xt, theta, W, forwards)
+        
+        if np.isnan(cross_entropy).any() or np.isnan(main_term).any():
+            import pdb; pdb.set_trace()
 
         J = np.mean(main_term + cross_entropy )
         J = np.squeeze(J)
@@ -167,7 +172,7 @@ class cIPFP(object):
             batch_terminal_empirical, H ,  forwards
         )
 
-    @partial(jit, static_argnums=(0,1, 4))
+#     @partial(jit, static_argnums=(0,1, 4))
     def update(self, i, opt_state, batch, forwards=True):
 
         get_params = self.get_params_f if forwards else self.get_params_b
@@ -248,4 +253,3 @@ class cIPFP(object):
         )
 
         return Xt[:,-1,:]
-            
