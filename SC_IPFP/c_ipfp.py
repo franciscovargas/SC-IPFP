@@ -95,30 +95,7 @@ class cIPFP(object):
            *model
         )
         return init_random_params, predict
-        
-    @partial(jit, static_argnums=(0,2,3, 6))
-    def loss_for_trajectory(self, Xt, b_f, b_b, dt, theta, forwards):
-        n_, *_ = Xt.shape
-        
-        if not forwards : Xt = Xt[: , ::-1, :]
-        
-        if forwards:
-            b_minus  = b_b(self.theta_b, Xt)
-            b_plus = b_f(theta, Xt)
-        else:
-            b_minus  = b_b(theta, Xt)
-            b_plus = b_f(self.theta_f, Xt)
-            
-        delta_Xt = Xt[:, :-1, :]  - Xt[:, 1:, :]
-        
-        sign = 1.0 if forwards else -1.0
-        
-        ito_integral = sign *  (b_plus[:, 1:,:] - b_minus[:, :-1,:])  * delta_Xt
-        
-        time_integral = sign *  (b_plus**2 - b_minus**2) * dt # Not sure about this dt here
-        
-        return ito_integral.sum(axis=(1,2)) - 0.5 * time_integral.sum(axis=(1,2))
-        
+    
     def data_stream(self, forward=True):
         rng = self.nrng
         X = self.X_0 if forward else self.X_1
@@ -133,49 +110,61 @@ class cIPFP(object):
                 batch_idx = perm[i * batch_size:(i + 1) * batch_size]
                 yield X[batch_idx] 
         
-    @staticmethod
-    def sample_trajectory(X, dt, theta, sigma, b, N, sde_solver, forwards=True):
-        return sde_solver(alfa=b, beta=sigma,
-                          dt=dt, X0=X,
-                          N=N, theta=theta)
+    @partial(jit, static_argnums=(0,3))
+    def loss_for_trajectory(self, Xt, theta, forwards):
+        n_, *_ = Xt.shape
+        
+        if not forwards : Xt = Xt[: , ::-1, :]
+        
+        if forwards:
+            b_minus  = self.b_backward(self.theta_b, Xt)
+            b_plus = self.b_forward(theta, Xt)
+        else:
+            b_minus  = self.b_backward(theta, Xt)
+            b_plus = self.b_forward(self.theta_f, Xt)
+            
+#         b_minus  = b_b(theta, Xt)
+#         b_plus = b_f(theta, Xt)
+            
+        delta_Xt = Xt[:, :-1, :]  - Xt[:, 1:, :]
+        
+        sign = 1.0 if forwards else -1.0
+        
+        ito_integral = sign *  (b_plus[:, 1:,:] - b_minus[:, :-1,:])  * delta_Xt
+        
+        time_integral = sign *  (b_plus**2 - b_minus**2) * self.dt 
+        
+        return ito_integral.sum(axis=(1,2)) - 0.5 * time_integral.sum(axis=(1,2))
 
 #     @partial(jit, static_argnums=(0,6,7,8,9,10,11))
-    def inner_loss_jit(self, terminal_index, theta, batch, dt, 
-                       batch_terminal_empirical, H , b_forward,
-                       b_backward, sigma, N, sde_solver, forwards):
+    def inner_loss_jit(self, theta, batch,  
+                       batch_terminal_empirical,
+                       H,  forwards):
         
-        b = (b_forward if forwards else (lambda X, theta: -b_backward(X, theta)))
+        b = (
+            self.b_forward if forwards else (lambda X, theta: -self.b_backward(X, theta))
+        )
         
-        t, Xt = cIPFP.sample_trajectory(batch, dt, theta,  sigma, b, N, sde_solver, forwards)
+        t, Xt = self.sde_solver(
+            alfa=b, beta=self.sigma, dt=self.dt, X0=batch,
+            N= self.number_time_steps, theta=theta
+        )
+        
         cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
-        main_term = self.loss_for_trajectory(Xt, b_forward, b_backward, dt, theta, forwards)
+        main_term = self.loss_for_trajectory(Xt, theta, forwards)
 
         J = np.mean(main_term + cross_entropy )
         J = np.squeeze(J)
         return J
     
-#     @partial(jit, static_argnums=(0,2))
-    def transport_batch(self, batch_x, forwards):
-        theta = self.theta_f if forwards else self.theta_b    
-        b = self.b_forward if forwards else  lambda X, theta: -self.b_backward(X, theta)
-
-        t, Xt = self.sde_solver(
-            alfa=b, beta=self.sigma, dt=self.dt, 
-            X0=batch_x.reshape(-1,self.dim), N=self.number_time_steps, theta=theta
-        )
-
-        return Xt[:,-1,:]
-    
     def inner_loss(self, theta, batch, forwards=True):
                        
-        terminal_index = -1 if forwards else 0
-        X_terminal_empirical = next(self.data_stream(forward=not(forwards)))
+        batch_terminal_empirical = next(self.data_stream(forward=not(forwards)))
     
         H = self.H_1 if forwards else self.H_0
         return self.inner_loss_jit(
-            terminal_index, theta, batch, self.dt, 
-            X_terminal_empirical, H , self.b_forward,
-            self.b_backward, self.sigma, self.number_time_steps, self.sde_solver, forwards
+            theta, batch,
+            batch_terminal_empirical, H ,  forwards
         )
 
     @partial(jit, static_argnums=(0,1, 4))
@@ -206,44 +195,57 @@ class cIPFP(object):
         self.theta_b = self.get_params_b(opt_state_b)
         
         for i in tqdm(range(IPFP_iterations)):
-                                               
+
             itercount = itertools.count()
-            
+
             for k in range(sub_iterations):
                 for _ in range(self.num_batches_b):
-#                     print(_)
                     batch_b =  next(batches_b)
                     opt_state_b  = self.update(
                         next(itercount), opt_state_b, batch_b, False
                     )
 
-                params = self.get_params_b(opt_state_b)
-                lossb = self.inner_loss(params, batch_b, False)
+                params_b = self.get_params_b(opt_state_b)
+                lossb = self.inner_loss(params_b, batch_b, False)
                 print(f"loss b {lossb}")
             loss_b.append(lossb)
-                                               
-            self.theta_b = self.get_params_b(opt_state_b)
-            
+
+            self.theta_b = params_b
+
             itercount = itertools.count()
-            
+
             for k in range(sub_iterations):
                 for _ in range(self.num_batches_f):
-#                     print(_)
                     batch_f =  next(batches_f)
                     opt_state_f = self.update(
                         next(itercount), opt_state_f, next(batches_f), True
                     )
-                params = self.get_params_f(opt_state_f)
-                lossf = self.inner_loss(params, batch_f, True)
+                params_f = self.get_params_f(opt_state_f)
+                lossf = self.inner_loss(params_f, batch_f, True)
                 print(f"loss f {lossf}")
             loss_f.append(lossf)
-        
 
-            self.theta_f = self.get_params_f(opt_state_f)
-            
+
+            self.theta_f = params_f
+
+            self.loss_f = loss_f
+            self.loss_b = loss_b
+
         
         plt.plot(range(IPFP_iterations), loss_f, "g")
         plt.show()
         plt.plot(range(IPFP_iterations), loss_b, "b")
         plt.show()
+    
+    #     @partial(jit, static_argnums=(0,2))
+    def transport_batch(self, batch_x, forwards):
+        theta = self.theta_f if forwards else self.theta_b    
+        b = self.b_forward if forwards else  lambda X, theta: -self.b_backward(X, theta)
+
+        t, Xt = self.sde_solver(
+            alfa=b, beta=self.sigma, dt=self.dt, 
+            X0=batch_x.reshape(-1,self.dim), N=self.number_time_steps, theta=theta
+        )
+
+        return Xt[:,-1,:]
             
