@@ -5,7 +5,7 @@ from jax import jit
 
 
 def fast_mahalanobis_2(X, Y , Lambda, partition=True):
-    _, dim = X.shape
+    _, dim, *els = X.shape
 
     s, logdet = np.linalg.slogdet(Lambda)
     # import  pdb; pdb.set_trace()
@@ -53,7 +53,7 @@ def kde_pdf_per_point(x_star, X, S):
     return np.exp(log_kde_pdf_per_point(x_star, X, S))
 
 def silvermans_rule(X):
-    N , d = X.shape
+    N , d, *_ = X.shape
     sig = np.std(X, axis=0)
 #     print(sig)
     h = sig * (4.0 / (N * (d + 2)) )**( 1.0 / (d + 4.0) )

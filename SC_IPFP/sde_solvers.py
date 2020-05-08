@@ -69,7 +69,7 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
        
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
-    n, d = X0.shape
+    n, d, *_ = X0.shape
         
     X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
     DWs  = randn(n, N-1, d)  * np.sqrt(dt)
