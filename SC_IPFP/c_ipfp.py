@@ -19,6 +19,7 @@ from functools import partial
 from tqdm.notebook import tqdm
 
 
+
 class cIPFP(object):
     
     def __init__(self, X_0, X_1, weights=[100], batch_size=None,  rng = jax.random.PRNGKey(0), 
@@ -223,7 +224,7 @@ class cIPFP(object):
                 for _ in range(self.num_batches_f):
                     batch_f =  next(batches_f)
                     opt_state_f = self.update(
-                        next(itercount), opt_state_f, next(batches_f), True
+                        next(itercount), opt_state_f, batch_f, True
                     )
                 params_f = self.get_params_f(opt_state_f)
                 lossf = self.inner_loss(params_f, batch_f, True)
@@ -253,3 +254,4 @@ class cIPFP(object):
         )
 
         return Xt[:,-1,:]
+            
