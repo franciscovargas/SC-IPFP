@@ -100,8 +100,8 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     Y, ti = np.zeros((n, N, d)), np.arange(N)*dt + t0
     Y = jax.ops.index_update(Y, jax.ops.index[:,0,:],  X0)
     
-    if np.isnan(Y).any():
-        import pdb; pdb.set_trace()
+#     if np.isnan(Y).any():
+#         import pdb; pdb.set_trace()
     
         
     t, Xt =  inner_jit_2(alfa, beta, Y, ti, N, dt, DWs, 1.0, theta)
