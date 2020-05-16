@@ -3,7 +3,7 @@ sys.path.append("/auto/homes/fav25/jax/")
 
 import jax.numpy as np
 
-from SC_IPFP.sde_solvers import solve_sde_RK
+from SC_IPFP.sde_solvers_time import solve_sde_RK
 from SC_IPFP.utils import log_kde_pdf_per_point, silvermans_rule
 
 from jax.config import config
@@ -22,7 +22,7 @@ from tqdm.notebook import tqdm
 
 class cIPFP(object):
     
-    def __init__(self, X_0, X_1, weights=[100], batch_size=None,  rng = jax.random.PRNGKey(0), 
+    def __init__(self, X_0, X_1, weights=[100], batch_size=None,  rng = jax.random.PRNGKey(100), rng_b = jax.random.PRNGKey(10), 
                 nrng = npr.RandomState(0), number_time_steps=16, sde_solver=solve_sde_RK, sigma_sq=1, 
                 step_size = 0.001, num_epochs = 10, momentum_mass = 0.9, create_network=None):
         
@@ -56,6 +56,7 @@ class cIPFP(object):
         self.sigma = (lambda X,t: sigma_sq)
         
         self.rng = rng
+        self.rng_b = rng_b
         self.nrng = nrng
         
         self.opt_init_f, self.opt_update_f, self.get_params_f = (
@@ -83,6 +84,8 @@ class cIPFP(object):
         
         self.div_backward_ = jax.vmap(partial(self.divergence, self.b_backward), in_axes=(None, 0))
         self.div_forward_ = jax.vmap(partial(self.divergence, self.b_forward), in_axes=(None, 0))
+        
+        self.first_iter_fac = 0.0
         
     @staticmethod
     def divergence(f, theta_, X_):
@@ -136,21 +139,19 @@ class cIPFP(object):
         if not forwards : Xt = Xt[: , ::-1, :]
         
         if forwards:
-            b_minus  = self.b_backward_(self.theta_b, Xt)
+            b_minus  = self.b_backward_(self.theta_b, Xt) 
             b_plus = self.b_forward_(theta, Xt)
-            div = self.div_backward_(self.theta_b, Xt)
+            div = self.div_backward_(self.theta_b, Xt) 
         else:
             b_minus  = self.b_backward_(theta, Xt)
-            b_plus = self.b_forward_(self.theta_f, Xt)
-            div = -self.div_forward_(self.theta_f, Xt)
+            b_plus = self.b_forward_(self.theta_f, Xt) * self.first_iter_fac 
+            div = -self.div_forward_(self.theta_f, Xt) * self.first_iter_fac 
         
         sign = 1.0 if forwards else -1.0
         
         time_integral = (sign *  (b_plus - b_minus))**2 * self.dt 
-        out =  0.5 * time_integral.sum(axis=(1,2)) - div.sum(axis=(1))
-        
-        if np.isnan(out).any() or np.isinf(out).any():
-            import pdb; pdb.set_trace()
+        out =  0.5 * time_integral.sum(axis=(1,2)) - (div.sum(axis=(1)) *  self.dt )
+
         return out
 
 #     @partial(jit, static_argnums=(0,6,7,8,9,10,11))
@@ -164,16 +165,14 @@ class cIPFP(object):
         
         t, Xt, *W = self.sde_solver(
             alfa=b, beta=self.sigma, dt=self.dt, X0=batch,
-            N= self.number_time_steps, theta=theta
+            N= self.number_time_steps, theta=theta, forwards=forwards
         )
-        
-        cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:], batch_terminal_empirical, H)
+        Ht = silvermans_rule(Xt[:,-1,:-1])
+        cross_entropy = -log_kde_pdf_per_point(Xt[:,-1,:-1], batch_terminal_empirical, H) 
+        entropy = 0.0 #-log_kde_pdf_per_point(Xt[:,-1,:-1], Xt[:,-1,:-1], Ht) *  0
         main_term = self.loss_for_trajectory(Xt, theta, W, forwards)
-        
-        if np.isnan(cross_entropy).any() or np.isnan(main_term).any():
-            import pdb; pdb.set_trace()
 
-        J = np.mean(main_term + cross_entropy )
+        J = np.mean(main_term + 2.0 * cross_entropy - entropy)
         J = np.squeeze(J)
         return J
     
@@ -198,12 +197,12 @@ class cIPFP(object):
         opt_update  = self.opt_update_f if forwards else self.opt_update_b
         return opt_update(i, gradient, opt_state)
 
-    def fit(self, IPFP_iterations=10, sub_iterations=10):     
+    def fit(self, IPFP_iterations=10, sub_iterations=10, plot=False):     
         
-        _, init_params_f = self.b_forward_init(self.rng, (-1, self.dim))                                             
+        _, init_params_f = self.b_forward_init(self.rng, (-1, self.dim + 1))                                             
         opt_state_f = self.opt_init_f(init_params_f)
         
-        _, init_params_b = self.b_backward_init(self.rng, (-1, self.dim))                                               
+        _, init_params_b = self.b_backward_init(self.rng_b, (-1, self.dim + 1))                                               
         opt_state_b = self.opt_init_b(init_params_b)
         
         batches_f = self.data_stream(forward=True)
@@ -214,6 +213,9 @@ class cIPFP(object):
         self.theta_f = self.get_params_f(opt_state_f)
         self.theta_b = self.get_params_b(opt_state_b)
         
+        if plot: self.plot_trajectories()
+        
+        self.first_iter_fac = 0.0
         for i in tqdm(range(IPFP_iterations)):
 
             itercount = itertools.count()
@@ -231,6 +233,7 @@ class cIPFP(object):
             loss_b.append(lossb)
 
             self.theta_b = params_b
+            self.first_iter_fac = 1.0
 
             itercount = itertools.count()
 
@@ -250,12 +253,48 @@ class cIPFP(object):
 
             self.loss_f = loss_f
             self.loss_b = loss_b
+            if plot: self.plot_trajectories()
 
         
         plt.plot(range(IPFP_iterations), loss_f, "g")
         plt.show()
         plt.plot(range(IPFP_iterations), loss_b, "b")
         plt.show()
+        
+    def plot_trajectories(self):
+        bb = lambda X, theta: -self.b_backward(X, theta)
+        t, Xts = c.sde_solver(
+            X0=self.X_0,dt=self.dt,  theta=self.theta_f,
+            beta=self.sigma, alfa=self.b_forward, N=self.number_time_steps, forwards=True
+        )
+        t_, Xts_ = c.sde_solver(
+            X0=self.X_1, dt=self.dt,  theta=self.theta_b,
+            beta=self.sigma, alfa=bb, N=self.number_time_steps, forwards=False
+        )
+        
+        fn = 14
+        fig, axs = plt.subplots(2,1,  sharey=False, figsize=(15,10))
+        axs[1].set_xlabel("$t$", fontsize=fn)
+        axs[1].set_ylabel("$x(t)$", fontsize=fn)
+        axs[0].set_ylabel("$x(t)$", fontsize=fn)
+
+        tt = axs[1].get_xticks()
+        axs[1].set_xticks(tt.flatten() )
+        axs[1].set_xticklabels(list(map (lambda x: '{0:.1f}'.format((x)), tt))[::-1])
+
+        for i in range(n):
+            label = "$\mathbb{Q}$: Forward process" if i == 0 else None
+            axs[0].plot(t.flatten(), Xts[i,:,:-1].flatten(), 'b', alpha=0.03,  label=label)
+
+
+        for i in range(n):
+            label = "$\mathbb{P}$: Reverse process" if i == 0 else None
+            axs[1].plot(t_.flatten(), Xts_[i,:, :-1].flatten(), 'r', alpha=0.03, label=label)
+
+        axs[1].legend(fontsize=fn)
+        axs[0].legend(fontsize=fn)
+
+        plt.show()    
     
     #     @partial(jit, static_argnums=(0,2))
     def transport_batch(self, batch_x, forwards):
@@ -268,4 +307,3 @@ class cIPFP(object):
         )
 
         return Xt[:,-1,:]
-            
