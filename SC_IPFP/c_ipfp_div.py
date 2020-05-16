@@ -91,8 +91,10 @@ class cIPFP(object):
     def divergence(f, theta_, X_):
 
         def my_div(f_):
-            jac = jax.jacrev(f_, 1)
-            return lambda t, x_: np.trace(jac(t, x_))
+            jac = jax.jacfwd(f_, 1)
+            # this implementation assumes the last cordinate is time
+            # we dont want that term in the div
+            return lambda t, x_: np.trace(jac(t, x_)[:-1,:-1])
 
         div  = ((jax.vmap(my_div(f), in_axes=(None, 0)) (theta_, X_ )))
         return div

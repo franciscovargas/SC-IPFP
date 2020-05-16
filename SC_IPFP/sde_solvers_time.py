@@ -10,7 +10,7 @@ key = jax.random.PRNGKey(0)
 onp.random.seed(0)
 
 
-@partial(jit, static_argnums=(0,1, 4,5))
+@partial(jit, static_argnums=(0,1, 4, 5, 10))
 def inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta, forwards):
     N = int(N)
     
@@ -29,7 +29,10 @@ def inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta, forwards):
             (DWn**2.0 - Dn) / np.sqrt(Dn)
         )
         
-        trep = T - t.repeat(newY.shape[0]).reshape(-1,1)
+        trep = (
+            t.repeat(newY.shape[0]).reshape(-1,1) if forwards
+            else T - t.repeat(newY.shape[0]).reshape(-1,1)
+        )
         newY = np.concatenate((newY, trep), axis=1)
         
         Y = jax.ops.index_update(Y, jax.ops.index[:,n+1,:],  newY)
@@ -40,7 +43,7 @@ def inner_jit(alfa, beta, Y, ti, N, Dn, DWs, Wn, dt, theta, forwards):
     return ti, Y
 
 
-@partial(jit, static_argnums=(0,1, 4))
+@partial(jit, static_argnums=(0,1, 4, 9))
 def inner_jit_2(alfa, beta, Y, ti, N, dt, DWs, Wn, theta, forwards):
     N = int(N)
     
@@ -57,7 +60,10 @@ def inner_jit_2(alfa, beta, Y, ti, N, dt, DWs, Wn, theta, forwards):
             Y[:,n, :-1] + a * dt + b * DW_n
         )
         
-        trep = T - t.repeat(newY.shape[0]).reshape(-1,1)
+        trep = (
+            t.repeat(newY.shape[0]).reshape(-1,1) if forwards
+            else T - t.repeat(newY.shape[0]).reshape(-1,1)
+        )
         newY = np.concatenate((newY, trep), axis=1)
         
         Y = jax.ops.index_update(Y, jax.ops.index[:,n+1,:],  newY)
@@ -103,13 +109,18 @@ def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
     if alfa is None or beta is None:
         raise ValueError("Error: SDE not defined.")
     n, d, *_ = X0.shape
+    
+    T = dt * N
         
     X0 = randn(*alfa(0, 0).shape) if X0 is None else np.array(X0)
     DWs  = randn(n, N-1, d)  * np.sqrt(dt)
     
     
     Y, ti = np.zeros((n, N, d + 1)), np.arange(N)*dt + t0
-    t0rep =  t0 * np.ones((X0.shape[0],1))
+    t0rep =  (
+        t0 * np.ones((X0.shape[0],1)) if forwards
+        else (T-t0) * np.ones((X0.shape[0],1))
+    )
     Y = jax.ops.index_update(
         Y, jax.ops.index[:,0,:],  np.concatenate((X0, t0rep), axis=1 )
     )
