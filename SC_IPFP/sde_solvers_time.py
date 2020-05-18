@@ -75,6 +75,7 @@ def inner_jit_2(alfa, beta, Y, ti, N, dt, DWs, Wn, theta, forwards):
 
 
 # @jit
+# @partial(jit, static_argnums=(0,1,3,4, 5, 6, 8,9))
 def solve_sde_RK(alfa=None, beta=None, X0=None, dt=1.0, N=100, t0=0.0,
                 key = key, theta=None, noise=False, forwards=True):
     """

@@ -52,9 +52,15 @@ def log_kde_pdf_per_point(x_star, X, S):
 def kde_pdf_per_point(x_star, X, S):
     return np.exp(log_kde_pdf_per_point(x_star, X, S))
 
+
 def silvermans_rule(X):
-    N , d, *_ = X.shape
-    sig = np.std(X, axis=0)
-#     print(sig)
-    h = sig * (4.0 / (N * (d + 2)) )**( 1.0 / (d + 4.0) )
-    return np.diag(h)**2
+    """Compute the Silverman factor.
+    Returns
+    -------
+    s : float
+        The silverman factor.
+    """
+    neff, d = X.shape
+    sigma = np.std(X, axis=0)
+    
+    return np.power(neff*(d+2.0)/4.0, -1./(d+4)) * np.diag(sigma)
